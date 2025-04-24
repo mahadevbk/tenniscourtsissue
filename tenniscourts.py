@@ -18,11 +18,24 @@ COURTS = [
     "AR2 ROSA", "AR2 PALMA", "AR2 FITNESS FIRST"
 ]
 
-# Initialize session state for storing issues
-if 'issues' not in st.session_state:
-    st.session_state.issues = pd.DataFrame(
+# Path to the CSV file for persistent storage
+DATA_FILE = "issues.csv"
+
+# Function to load issues from CSV
+def load_issues():
+    if os.path.exists(DATA_FILE):
+        return pd.read_csv(DATA_FILE)
+    return pd.DataFrame(
         columns=['id', 'date', 'court', 'problem', 'photo_path', 'reporter']
     )
+
+# Function to save issues to CSV
+def save_issues(df):
+    df.to_csv(DATA_FILE, index=False)
+
+# Initialize session state for storing issues
+if 'issues' not in st.session_state:
+    st.session_state.issues = load_issues()
 
 # Function to save uploaded photo
 def save_photo(uploaded_file):
@@ -73,28 +86,13 @@ def main():
                     [st.session_state.issues, new_issue], 
                     ignore_index=True
                 )
+                save_issues(st.session_state.issues)  # Save to CSV
                 st.success("Issue reported successfully!")
             else:
                 st.error("Please fill in all required fields (Court, Problem, Name)")
 
     # Display reported issues
     st.subheader("Reported Issues")
-    # Apply custom CSS for small buttons
-    st.markdown(
-        """
-        <style>
-        .small-button > button {
-            padding: 2px 8px;
-            font-size: 12px;
-            min-height: 30px;
-            margin: 2px 0;
-            width: 100%;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
     if not st.session_state.issues.empty:
         for idx, row in st.session_state.issues.iterrows():
             col1, col2, col3, col4, col5 = st.columns([2, 2, 3, 2, 1])
@@ -122,11 +120,12 @@ def main():
             
             with col5:
                 st.write(row['reporter'])
-                # Compact buttons in a vertical layout
-                with st.container():
-                    if st.button("Edit", key=f"edit_{row['id']}", help="Edit this issue", type="secondary", use_container_width=True):
+                col5_1, col5_2 = st.columns(2)
+                with col5_1:
+                    if st.button("Edit", key=f"edit_{row['id']}"):
                         st.session_state[f"edit_mode_{row['id']}"] = True
-                    if st.button("Delete", key=f"delete_{row['id']}", help="Delete this issue", type="secondary", use_container_width=True):
+                with col5_2:
+                    if st.button("Delete", key=f"delete_{row['id']}"):
                         # Remove photo file if exists
                         if row['photo_path'] and os.path.exists(row['photo_path']):
                             os.remove(row['photo_path'])
@@ -134,6 +133,7 @@ def main():
                         st.session_state.issues = st.session_state.issues[
                             st.session_state.issues['id'] != row['id']
                         ]
+                        save_issues(st.session_state.issues)  # Save to CSV
                         st.rerun()
 
             # Edit form in an expander
@@ -164,6 +164,7 @@ def main():
                                     new_photo_path,
                                     edit_reporter
                                 ]
+                                save_issues(st.session_state.issues)  # Save to CSV
                                 st.session_state[f"edit_mode_{row['id']}"] = False
                                 st.success("Issue updated successfully!")
                                 st.rerun()
