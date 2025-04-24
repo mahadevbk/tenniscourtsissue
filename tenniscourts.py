@@ -30,9 +30,13 @@ DATA_FILE = "issues.csv"
 def load_issues():
     try:
         if os.path.exists(DATA_FILE):
+            # Check if file is empty
+            if os.path.getsize(DATA_FILE) == 0:
+                logger.warning(f"{DATA_FILE} exists but is empty")
+                return pd.DataFrame(columns=['id', 'date', 'court', 'problem', 'photo_path', 'reporter'])
             df = pd.read_csv(DATA_FILE)
             logger.info(f"Loaded {len(df)} issues from {DATA_FILE}")
-            # Ensure all columns exist
+            # Ensure all required columns exist
             required_columns = ['id', 'date', 'court', 'problem', 'photo_path', 'reporter']
             for col in required_columns:
                 if col not in df.columns:
@@ -41,6 +45,9 @@ def load_issues():
         else:
             logger.info(f"No {DATA_FILE} found, initializing empty DataFrame")
             return pd.DataFrame(columns=['id', 'date', 'court', 'problem', 'photo_path', 'reporter'])
+    except pd.errors.EmptyDataError:
+        logger.warning(f"{DATA_FILE} is empty or malformed, returning empty DataFrame")
+        return pd.DataFrame(columns=['id', 'date', 'court', 'problem', 'photo_path', 'reporter'])
     except Exception as e:
         logger.error(f"Error loading issues from {DATA_FILE}: {str(e)}")
         st.error(f"Failed to load issues: {str(e)}")
@@ -49,7 +56,7 @@ def load_issues():
 # Function to save issues to CSV
 def save_issues(df):
     try:
-        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)  # Ensure directory exists
+        os.makedirs(os.path.dirname(DATA_FILE) or '.', exist_ok=True)  # Ensure directory exists
         df.to_csv(DATA_FILE, index=False)
         logger.info(f"Saved {len(df)} issues to {DATA_FILE}")
     except Exception as e:
