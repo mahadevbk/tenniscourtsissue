@@ -106,12 +106,25 @@ def main():
             
             with col5:
                 st.write(row['reporter'])
-                col5_1, col5_2 = st.columns(2)
-                with col5_1:
-                    if st.button("Edit", key=f"edit_{row['id']}"):
+                # Compact buttons in a vertical layout
+                with st.container():
+                    st.markdown(
+                        """
+                        <style>
+                        .small-button button {
+                            padding: 2px 8px;
+                            font-size: 12px;
+                            min-height: 30px;
+                            margin: 2px 0;
+                            width: 100%;
+                        }
+                        </style>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                    if st.button("Edit", key=f"edit_{row['id']}", help="Edit this issue", type="secondary", use_container_width=True, html_class="small-button"):
                         st.session_state[f"edit_mode_{row['id']}"] = True
-                with col5_2:
-                    if st.button("Delete", key=f"delete_{row['id']}"):
+                    if st.button("Delete", key=f"delete_{row['id']}", help="Delete this issue", type="secondary", use_container_width=True, html_class="small-button"):
                         # Remove photo file if exists
                         if row['photo_path'] and os.path.exists(row['photo_path']):
                             os.remove(row['photo_path'])
