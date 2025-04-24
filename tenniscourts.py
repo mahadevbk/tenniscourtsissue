@@ -9,6 +9,7 @@ import uuid
 import sys
 import logging
 import numpy as np
+import pytz
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -124,6 +125,9 @@ def get_thumbnail(photo_path, size=(100, 100)):
 def main():
     st.title("Tennis Court Issue Tracker")
 
+    # Dubai timezone
+    dubai_tz = pytz.timezone('Asia/Dubai')
+
     # Form for reporting new issues
     with st.form("issue_form"):
         st.subheader("Report a New Issue")
@@ -138,7 +142,7 @@ def main():
                 photo_path = save_photo(photo)
                 new_issue = pd.DataFrame({
                     'id': [str(uuid.uuid4())],
-                    'date': [datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+                    'date': [datetime.now(dubai_tz).strftime("%Y-%m-%d %H:%M:%S")],
                     'court': [court],
                     'problem': [problem],
                     'photo_path': [photo_path],
@@ -229,7 +233,7 @@ def main():
                                     st.session_state.issues['id'] == row['id'],
                                     ['date', 'court', 'problem', 'photo_path', 'reporter']
                                 ] = [
-                                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    datetime.now(dubai_tz).strftime("%Y-%m-%d %H:%M:%S"),
                                     edit_court,
                                     edit_problem,
                                     new_photo_path,
