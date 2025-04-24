@@ -10,6 +10,7 @@ import sys
 import logging
 import numpy as np
 import pytz
+import sqlite3
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
@@ -29,61 +30,49 @@ COURTS = [
     "AR2 ROSA", "AR2 PALMA", "AR2 FITNESS FIRST"
 ]
 
-# Path to the CSV file for persistent storage
-DATA_FILE = "issues.csv"
+# Path to the SQLite database
+DATA_FILE = "issues.db"
 
-# Function to load issues from CSV
+# Initialize SQLite database
+def init_db():
+    try:
+        conn = sqlite3.connect(DATA_FILE)
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS issues
+                     (id TEXT, date TEXT, court TEXT, problem TEXT, photo_path TEXT, reporter TEXT)''')
+        conn.commit()
+        logger.info(f"Initialized SQLite database at {DATA_FILE}")
+    except Exception as e:
+        logger.error(f"Error initializing database: {str(e)}")
+        st.error(f"Failed to initialize database: {str(e)}")
+    finally:
+        conn.close()
+
+# Function to load issues from SQLite
 def load_issues():
     try:
-        if os.path.exists(DATA_FILE):
-            # Check if file is empty
-            if os.path.getsize(DATA_FILE) == 0:
-                logger.warning(f"{DATA_FILE} exists but is empty")
-                return pd.DataFrame(columns=['id', 'date', 'court', 'problem', 'photo_path', 'reporter'])
-            # Read CSV and convert photo_path NaN to None
-            df = pd.read_csv(DATA_FILE)
-            df['photo_path'] = df['photo_path'].replace({np.nan: None})
-            if df.empty and not os.path.getsize(DATA_FILE) == 0:
-                logger.warning(f"{DATA_FILE} has no valid data, initializing empty DataFrame")
-                return pd.DataFrame(columns=['id', 'date', 'court', 'problem', 'photo_path', 'reporter'])
-            logger.info(f"Loaded {len(df)} issues from {DATA_FILE}")
-            # Ensure all required columns exist
-            required_columns = ['id', 'date', 'court', 'problem', 'photo_path', 'reporter']
-            for col in required_columns:
-                if col not in df.columns:
-                    df[col] = None
-            return df
+        conn = sqlite3.connect(DATA_FILE)
+        df = pd.read_sql_query("SELECT * FROM issues", conn)
+        df['photo_path'] = df['photo_path'].replace({np.nan: None})
+        conn.close()
+        if df.empty:
+            logger.info(f"No issues found in {DATA_FILE}, returning empty DataFrame")
         else:
-            logger.info(f"No {DATA_FILE} found, initializing empty DataFrame")
-            return pd.DataFrame(columns=['id', 'date', 'court', 'problem', 'photo_path', 'reporter'])
-    except pd.errors.EmptyDataError:
-        logger.warning(f"{DATA_FILE} is empty or malformed, returning empty DataFrame")
-        return pd.DataFrame(columns=['id', 'date', 'court', 'problem', 'photo_path', 'reporter'])
+            logger.info(f"Loaded {len(df)} issues from {DATA_FILE}")
+        return df
     except Exception as e:
         logger.error(f"Error loading issues from {DATA_FILE}: {str(e)}")
         st.error(f"Failed to load issues: {str(e)}")
         return pd.DataFrame(columns=['id', 'date', 'court', 'problem', 'photo_path', 'reporter'])
 
-# Function to save issues to CSV
+# Function to save issues to SQLite
 def save_issues(df):
     try:
-        os.makedirs(os.path.dirname(DATA_FILE) or '.', exist_ok=True)  # Ensure directory exists
-        # Validate DataFrame before saving
-        if not isinstance(df, pd.DataFrame):
-            raise ValueError("Input is not a pandas DataFrame")
-        if not all(col in df.columns for col in ['id', 'date', 'court', 'problem', 'photo_path', 'reporter']):
-            raise ValueError("DataFrame missing required columns")
-        # Ensure photo_path is string or None
+        conn = sqlite3.connect(DATA_FILE)
         df['photo_path'] = df['photo_path'].replace({np.nan: None})
-        df.to_csv(DATA_FILE, index=False)
-        # Verify file was written
-        if os.path.exists(DATA_FILE):
-            file_size = os.path.getsize(DATA_FILE)
-            logger.info(f"Saved {len(df)} issues to {DATA_FILE} (size: {file_size} bytes)")
-            # Read back to ensure it's valid
-            pd.read_csv(DATA_FILE)
-        else:
-            raise FileNotFoundError(f"{DATA_FILE} was not created")
+        df.to_sql('issues', conn, if_exists='replace', index=False)
+        conn.close()
+        logger.info(f"Saved {len(df)} issues to {DATA_FILE}")
     except Exception as e:
         logger.error(f"Error saving issues to {DATA_FILE}: {str(e)}")
         st.error(f"Failed to save issues: {str(e)}")
@@ -154,111 +143,4 @@ def generate_pdf(issues_df):
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    elements.append(table)
-    
-    # Build PDF
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
-
-# Main app function
-def main():
-    st.title("Tennis Court Issue Tracker")
-
-    # Dubai timezone
-    dubai_tz = pytz.timezone('Asia/Dubai')
-
-    # Form for reporting new issues
-    with st.form("issue_form"):
-        st.subheader("Report a New Issue")
-        court = st.selectbox("Court Name", COURTS)
-        problem = st.text_area("Problem Description")
-        photo = st.file_uploader("Upload Photo (optional)", type=['png', 'jpg', 'jpeg'])
-        reporter = st.text_input("Your Name")
-        submit_button = st.form_submit_button("Submit Issue")
-
-        if submit_button:
-            if court and problem and reporter:
-                photo_path = save_photo(photo)
-                new_issue = pd.DataFrame({
-                    'id': [str(uuid.uuid4())],
-                    'date': [datetime.now(dubai_tz).strftime("%Y-%m-%d %H:%M:%S")],
-                    'court': [court],
-                    'problem': [problem],
-                    'photo_path': [photo_path],
-                    'reporter': [reporter]
-                })
-                st.session_state.issues = pd.concat(
-                    [st.session_state.issues, new_issue], 
-                    ignore_index=True
-                )
-                save_issues(st.session_state.issues)  # Save to CSV
-                logger.debug(f"Added new issue, total issues: {len(st.session_state.issues)}")
-                st.success("Issue reported successfully!")
-            else:
-                st.error("Please fill in all required fields (Court, Problem, Name)")
-
-    # Download options
-    st.subheader("Download Issues")
-    if not st.session_state.issues.empty:
-        # CSV Download
-        csv = st.session_state.issues.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download as CSV",
-            data=csv,
-            file_name="tennis_court_issues.csv",
-            mime="text/csv"
-        )
-
-        # Excel Download
-        excel_buffer = io.BytesIO()
-        st.session_state.issues.to_excel(excel_buffer, index=False, engine='openpyxl')
-        excel_buffer.seek(0)
-        st.download_button(
-            label="Download as Excel",
-            data=excel_buffer,
-            file_name="tennis_court_issues.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-        # PDF Download
-        pdf_buffer = generate_pdf(st.session_state.issues)
-        st.download_button(
-            label="Download as PDF",
-            data=pdf_buffer,
-            file_name="tennis_court_issues.pdf",
-            mime="application/pdf"
-        )
-    else:
-        st.info("No issues to download.")
-
-    # Display reported issues
-    st.subheader("Reported Issues")
-    if not st.session_state.issues.empty:
-        for idx, row in st.session_state.issues.iterrows():
-            col1, col2, col3, col4, col5 = st.columns([2, 2, 3, 2, 1])
-            
-            with col1:
-                st.write(row['date'])
-            
-            with col2:
-                st.write(row['court'])
-            
-            with col3:
-                st.write(row['problem'])
-            
-            with col4:
-                thumbnail = get_thumbnail(row['photo_path'])
-                if thumbnail:
-                    st.image(
-                        f"data:image/png;base64,{thumbnail}",
-                        caption="Click to view full size",
-                        use_container_width=True
-                    )
-                    if st.button("View Full Size", key=f"view
+        ('FONTNAME', (0, 0), (-1
