@@ -10,6 +10,10 @@ import sys
 import logging
 import numpy as np
 import pytz
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -121,6 +125,48 @@ def get_thumbnail(photo_path, size=(100, 100)):
     logger.debug(f"No thumbnail generated for {photo_path}: invalid path or file does not exist")
     return None
 
+# Function to generate PDF from issues
+def generate_pdf(issues_df):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    elements = []
+    
+    # Title
+    styles = getSampleStyleSheet()
+    elements.append(Paragraph("Tennis Court Issues Report", styles['Title']))
+    elements.append(Paragraph(f"Generated on {datetime.now(pytz.timezone('Asia/Dubai')).strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    
+    # Table data
+    data = [['ID', 'Date', 'Court', 'Problem', 'Photo Path', 'Reporter']]
+    for _, row in issues_df.iterrows():
+        data.append([
+            row['id'][:8] + '...' if isinstance(row['id'], str) else '',
+            row['date'],
+            row['court'],
+            row['problem'][:50] + '...' if isinstance(row['problem'], str) and len(row['problem']) > 50 else row['problem'],
+            row['photo_path'] if row['photo_path'] else 'None',
+            row['reporter']
+        ])
+    
+    # Create table
+    table = Table(data)
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    elements.append(table)
+    
+    # Build PDF
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
 # Main app function
 def main():
     st.title("Tennis Court Issue Tracker")
@@ -158,6 +204,40 @@ def main():
             else:
                 st.error("Please fill in all required fields (Court, Problem, Name)")
 
+    # Download options
+    st.subheader("Download Issues")
+    if not st.session_state.issues.empty:
+        # CSV Download
+        csv = st.session_state.issues.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Download as CSV",
+            data=csv,
+            file_name="tennis_court_issues.csv",
+            mime="text/csv"
+        )
+
+        # Excel Download
+        excel_buffer = io.BytesIO()
+        st.session_state.issues.to_excel(excel_buffer, index=False, engine='openpyxl')
+        excel_buffer.seek(0)
+        st.download_button(
+            label="Download as Excel",
+            data=excel_buffer,
+            file_name="tennis_court_issues.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+        # PDF Download
+        pdf_buffer = generate_pdf(st.session_state.issues)
+        st.download_button(
+            label="Download as PDF",
+            data=pdf_buffer,
+            file_name="tennis_court_issues.pdf",
+            mime="application/pdf"
+        )
+    else:
+        st.info("No issues to download.")
+
     # Display reported issues
     st.subheader("Reported Issues")
     if not st.session_state.issues.empty:
@@ -181,81 +261,4 @@ def main():
                         caption="Click to view full size",
                         use_container_width=True
                     )
-                    if st.button("View Full Size", key=f"view_{row['id']}"):
-                        st.image(row['photo_path'], use_container_width=True)
-            
-            with col5:
-                st.write(row['reporter'])
-                col5_1, col5_2 = st.columns(2)
-                with col5_1:
-                    if st.button("Edit", key=f"edit_{row['id']}"):
-                        st.session_state[f"edit_mode_{row['id']}"] = True
-                with col5_2:
-                    if st.button("Delete", key=f"delete_{row['id']}"):
-                        # Remove photo file if exists
-                        if row['photo_path'] and isinstance(row['photo_path'], str) and os.path.exists(row['photo_path']):
-                            try:
-                                os.remove(row['photo_path'])
-                                logger.info(f"Deleted photo {row['photo_path']}")
-                            except Exception as e:
-                                logger.error(f"Error deleting photo {row['photo_path']}: {str(e)}")
-                        # Remove issue from dataframe
-                        st.session_state.issues = st.session_state.issues[
-                            st.session_state.issues['id'] != row['id']
-                        ]
-                        save_issues(st.session_state.issues)  # Save to CSV
-                        logger.debug(f"Deleted issue, total issues: {len(st.session_state.issues)}")
-                        st.rerun()
-
-            # Edit form in an expander
-            if st.session_state.get(f"edit_mode_{row['id']}", False):
-                with st.expander("Edit Issue", expanded=True):
-                    with st.form(f"edit_form_{row['id']}"):
-                        edit_court = st.selectbox("Court Name", COURTS, index=COURTS.index(row['court']))
-                        edit_problem = st.text_area("Problem Description", value=row['problem'])
-                        edit_photo = st.file_uploader("Upload New Photo (optional)", type=['png', 'jpg', 'jpeg'], key=f"edit_photo_{row['id']}")
-                        edit_reporter = st.text_input("Your Name", value=row['reporter'])
-                        save_button = st.form_submit_button("Save Changes")
-
-                        if save_button:
-                            if edit_court and edit_problem and edit_reporter:
-                                # Handle photo update
-                                new_photo_path = save_photo(edit_photo) if edit_photo else row['photo_path']
-                                if edit_photo and row['photo_path'] and isinstance(row['photo_path'], str) and os.path.exists(row['photo_path']):
-                                    try:
-                                        os.remove(row['photo_path'])
-                                        logger.info(f"Deleted old photo {row['photo_path']}")
-                                    except Exception as e:
-                                        logger.error(f"Error deleting old photo {row['photo_path']}: {str(e)}")
-                                
-                                # Update the issue in the DataFrame
-                                st.session_state.issues.loc[
-                                    st.session_state.issues['id'] == row['id'],
-                                    ['date', 'court', 'problem', 'photo_path', 'reporter']
-                                ] = [
-                                    datetime.now(dubai_tz).strftime("%Y-%m-%d %H:%M:%S"),
-                                    edit_court,
-                                    edit_problem,
-                                    new_photo_path,
-                                    edit_reporter
-                                ]
-                                save_issues(st.session_state.issues)  # Save to CSV
-                                st.session_state[f"edit_mode_{row['id']}"] = False
-                                logger.debug(f"Updated issue, total issues: {len(st.session_state.issues)}")
-                                st.success("Issue updated successfully!")
-                                st.rerun()
-                            else:
-                                st.error("Please fill in all required fields (Court, Problem, Name)")
-            
-            st.markdown("---")
-    else:
-        st.info("No issues reported yet.")
-
-if __name__ == "__main__":
-    if 'streamlit' not in sys.modules or not hasattr(sys.modules['streamlit'], 'runtime'):
-        logger.error("This is a Streamlit app. Run it with: streamlit run tenniscourts.py")
-        print("Error: This is a Streamlit app. Please run it using the command:")
-        print("    streamlit run tenniscourts.py")
-        print("Do NOT run it directly with 'python tenniscourts.py'.")
-        sys.exit(1)
-    main()
+                    if st.button("View Full Size", key=f"view
