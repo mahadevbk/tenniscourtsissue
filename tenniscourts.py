@@ -79,6 +79,22 @@ def main():
 
     # Display reported issues
     st.subheader("Reported Issues")
+    # Apply custom CSS for small buttons
+    st.markdown(
+        """
+        <style>
+        .small-button > button {
+            padding: 2px 8px;
+            font-size: 12px;
+            min-height: 30px;
+            margin: 2px 0;
+            width: 100%;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     if not st.session_state.issues.empty:
         for idx, row in st.session_state.issues.iterrows():
             col1, col2, col3, col4, col5 = st.columns([2, 2, 3, 2, 1])
@@ -108,23 +124,9 @@ def main():
                 st.write(row['reporter'])
                 # Compact buttons in a vertical layout
                 with st.container():
-                    st.markdown(
-                        """
-                        <style>
-                        .small-button button {
-                            padding: 2px 8px;
-                            font-size: 12px;
-                            min-height: 30px;
-                            margin: 2px 0;
-                            width: 100%;
-                        }
-                        </style>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                    if st.button("Edit", key=f"edit_{row['id']}", help="Edit this issue", type="secondary", use_container_width=True, html_class="small-button"):
+                    if st.button("Edit", key=f"edit_{row['id']}", help="Edit this issue", type="secondary", use_container_width=True):
                         st.session_state[f"edit_mode_{row['id']}"] = True
-                    if st.button("Delete", key=f"delete_{row['id']}", help="Delete this issue", type="secondary", use_container_width=True, html_class="small-button"):
+                    if st.button("Delete", key=f"delete_{row['id']}", help="Delete this issue", type="secondary", use_container_width=True):
                         # Remove photo file if exists
                         if row['photo_path'] and os.path.exists(row['photo_path']):
                             os.remove(row['photo_path'])
