@@ -106,15 +106,54 @@ def main():
             
             with col5:
                 st.write(row['reporter'])
-                if st.button("Delete", key=f"delete_{row['id']}"):
-                    # Remove photo file if exists
-                    if row['photo_path'] and os.path.exists(row['photo_path']):
-                        os.remove(row['photo_path'])
-                    # Remove issue from dataframe
-                    st.session_state.issues = st.session_state.issues[
-                        st.session_state.issues['id'] != row['id']
-                    ]
-                    st.rerun()
+                col5_1, col5_2 = st.columns(2)
+                with col5_1:
+                    if st.button("Edit", key=f"edit_{row['id']}"):
+                        st.session_state[f"edit_mode_{row['id']}"] = True
+                with col5_2:
+                    if st.button("Delete", key=f"delete_{row['id']}"):
+                        # Remove photo file if exists
+                        if row['photo_path'] and os.path.exists(row['photo_path']):
+                            os.remove(row['photo_path'])
+                        # Remove issue from dataframe
+                        st.session_state.issues = st.session_state.issues[
+                            st.session_state.issues['id'] != row['id']
+                        ]
+                        st.rerun()
+
+            # Edit form in an expander
+            if st.session_state.get(f"edit_mode_{row['id']}", False):
+                with st.expander("Edit Issue", expanded=True):
+                    with st.form(f"edit_form_{row['id']}"):
+                        edit_court = st.selectbox("Court Name", COURTS, index=COURTS.index(row['court']))
+                        edit_problem = st.text_area("Problem Description", value=row['problem'])
+                        edit_photo = st.file_uploader("Upload New Photo (optional)", type=['png', 'jpg', 'jpeg'], key=f"edit_photo_{row['id']}")
+                        edit_reporter = st.text_input("Your Name", value=row['reporter'])
+                        save_button = st.form_submit_button("Save Changes")
+
+                        if save_button:
+                            if edit_court and edit_problem and edit_reporter:
+                                # Handle photo update
+                                new_photo_path = save_photo(edit_photo) if edit_photo else row['photo_path']
+                                if edit_photo and row['photo_path'] and os.path.exists(row['photo_path']):
+                                    os.remove(row['photo_path'])  # Remove old photo if new one is uploaded
+                                
+                                # Update the issue in the DataFrame
+                                st.session_state.issues.loc[
+                                    st.session_state.issues['id'] == row['id'],
+                                    ['date', 'court', 'problem', 'photo_path', 'reporter']
+                                ] = [
+                                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    edit_court,
+                                    edit_problem,
+                                    new_photo_path,
+                                    edit_reporter
+                                ]
+                                st.session_state[f"edit_mode_{row['id']}"] = False
+                                st.success("Issue updated successfully!")
+                                st.rerun()
+                            else:
+                                st.error("Please fill in all required fields (Court, Problem, Name)")
             
             st.markdown("---")
     else:
