@@ -7,6 +7,11 @@ from PIL import Image
 import io
 import uuid
 import sys
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Define court names
 COURTS = [
@@ -23,39 +28,68 @@ DATA_FILE = "issues.csv"
 
 # Function to load issues from CSV
 def load_issues():
-    if os.path.exists(DATA_FILE):
-        return pd.read_csv(DATA_FILE)
-    return pd.DataFrame(
-        columns=['id', 'date', 'court', 'problem', 'photo_path', 'reporter']
-    )
+    try:
+        if os.path.exists(DATA_FILE):
+            df = pd.read_csv(DATA_FILE)
+            logger.info(f"Loaded {len(df)} issues from {DATA_FILE}")
+            # Ensure all columns exist
+            required_columns = ['id', 'date', 'court', 'problem', 'photo_path', 'reporter']
+            for col in required_columns:
+                if col not in df.columns:
+                    df[col] = None
+            return df
+        else:
+            logger.info(f"No {DATA_FILE} found, initializing empty DataFrame")
+            return pd.DataFrame(columns=['id', 'date', 'court', 'problem', 'photo_path', 'reporter'])
+    except Exception as e:
+        logger.error(f"Error loading issues from {DATA_FILE}: {str(e)}")
+        st.error(f"Failed to load issues: {str(e)}")
+        return pd.DataFrame(columns=['id', 'date', 'court', 'problem', 'photo_path', 'reporter'])
 
 # Function to save issues to CSV
 def save_issues(df):
-    df.to_csv(DATA_FILE, index=False)
+    try:
+        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)  # Ensure directory exists
+        df.to_csv(DATA_FILE, index=False)
+        logger.info(f"Saved {len(df)} issues to {DATA_FILE}")
+    except Exception as e:
+        logger.error(f"Error saving issues to {DATA_FILE}: {str(e)}")
+        st.error(f"Failed to save issues: {str(e)}")
 
 # Initialize session state for storing issues
 if 'issues' not in st.session_state:
     st.session_state.issues = load_issues()
+    logger.debug(f"Initialized session state with {len(st.session_state.issues)} issues")
 
 # Function to save uploaded photo
 def save_photo(uploaded_file):
     if uploaded_file is not None:
-        photo_id = str(uuid.uuid4())
-        photo_path = f"photos/{photo_id}_{uploaded_file.name}"
-        os.makedirs("photos", exist_ok=True)
-        with open(photo_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        return photo_path
+        try:
+            photo_id = str(uuid.uuid4())
+            photo_path = f"photos/{photo_id}_{uploaded_file.name}"
+            os.makedirs("photos", exist_ok=True)
+            with open(photo_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            logger.info(f"Saved photo to {photo_path}")
+            return photo_path
+        except Exception as e:
+            logger.error(f"Error saving photo: {str(e)}")
+            st.error(f"Failed to save photo: {str(e)}")
+            return None
     return None
 
 # Function to get thumbnail
 def get_thumbnail(photo_path, size=(100, 100)):
     if photo_path and os.path.exists(photo_path):
-        img = Image.open(photo_path)
-        img.thumbnail(size)
-        buffered = io.BytesIO()
-        img.save(buffered, format="PNG")
-        return base64.b64encode(buffered.getvalue()).decode()
+        try:
+            img = Image.open(photo_path)
+            img.thumbnail(size)
+            buffered = io.BytesIO()
+            img.save(buffered, format="PNG")
+            return base64.b64encode(buffered.getvalue()).decode()
+        except Exception as e:
+            logger.error(f"Error generating thumbnail for {photo_path}: {str(e)}")
+            return None
     return None
 
 # Main app function
@@ -87,6 +121,7 @@ def main():
                     ignore_index=True
                 )
                 save_issues(st.session_state.issues)  # Save to CSV
+                logger.debug(f"Added new issue, total issues: {len(st.session_state.issues)}")
                 st.success("Issue reported successfully!")
             else:
                 st.error("Please fill in all required fields (Court, Problem, Name)")
@@ -128,12 +163,17 @@ def main():
                     if st.button("Delete", key=f"delete_{row['id']}"):
                         # Remove photo file if exists
                         if row['photo_path'] and os.path.exists(row['photo_path']):
-                            os.remove(row['photo_path'])
+                            try:
+                                os.remove(row['photo_path'])
+                                logger.info(f"Deleted photo {row['photo_path']}")
+                            except Exception as e:
+                                logger.error(f"Error deleting photo {row['photo_path']}: {str(e)}")
                         # Remove issue from dataframe
                         st.session_state.issues = st.session_state.issues[
                             st.session_state.issues['id'] != row['id']
                         ]
                         save_issues(st.session_state.issues)  # Save to CSV
+                        logger.debug(f"Deleted issue, total issues: {len(st.session_state.issues)}")
                         st.rerun()
 
             # Edit form in an expander
@@ -151,7 +191,11 @@ def main():
                                 # Handle photo update
                                 new_photo_path = save_photo(edit_photo) if edit_photo else row['photo_path']
                                 if edit_photo and row['photo_path'] and os.path.exists(row['photo_path']):
-                                    os.remove(row['photo_path'])  # Remove old photo if new one is uploaded
+                                    try:
+                                        os.remove(row['photo_path'])
+                                        logger.info(f"Deleted old photo {row['photo_path']}")
+                                    except Exception as e:
+                                        logger.error(f"Error deleting old photo {row['photo_path']}: {str(e)}")
                                 
                                 # Update the issue in the DataFrame
                                 st.session_state.issues.loc[
@@ -166,6 +210,7 @@ def main():
                                 ]
                                 save_issues(st.session_state.issues)  # Save to CSV
                                 st.session_state[f"edit_mode_{row['id']}"] = False
+                                logger.debug(f"Updated issue, total issues: {len(st.session_state.issues)}")
                                 st.success("Issue updated successfully!")
                                 st.rerun()
                             else:
@@ -177,8 +222,9 @@ def main():
 
 if __name__ == "__main__":
     if 'streamlit' not in sys.modules or not hasattr(sys.modules['streamlit'], 'runtime'):
+        logger.error("This is a Streamlit app. Run it with: streamlit run tenniscourts.py")
         print("Error: This is a Streamlit app. Please run it using the command:")
-        print("    streamlit run tennis_court_issue_tracker.py")
-        print("Do NOT run it directly with 'python tennis_court_issue_tracker.py'.")
+        print("    streamlit run tenniscourts.py")
+        print("Do NOT run it directly with 'python tenniscourts.py'.")
         sys.exit(1)
     main()
